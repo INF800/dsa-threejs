@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <title>Queue Animation with Three.js</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+        }
+
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        #buttons-container {
+            width: 100px;
+            height: 100px;
+
+            position: absolute;
+            bottom: 10vh;
+            left: 0;
+            right: 0;
+            margin: auto;
+            z-index: 1;
+        }
+
+        #buttons-container button {
+            margin: 5px;
+            padding: 10px 20px;
+            font-size: 16px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="buttons-container">
+        <button id="enqueueBtn">Enqueue</button>
+        <button id="dequeueBtn">Dequeue</button>
+    </div>
+
+    <script type="module">
+        import { OrbitControls } from 'https://cdn.jsdelivr.net/npm/three@0.124/examples/jsm/controls/OrbitControls.js';
+
+        function getRandomArbitrary(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        const throttleFunction = (func, delay) => {
+            let prev = 0;
+            return (...args) => {
+                let now = new Date().getTime();
+                if (now - prev > delay) {
+                    prev = now;
+                    return func(...args);
+                }
+            }
+        }
+
+        class QueueAnimation {
+            constructor() {
+                this.SIZE = 5; // Maximum size of the queue
+                this.CUBE_SIZE = 1; // Size of individual cube elements
+                this._prev_brightness = 0.6
+                this._prev_uid = 0
+
+                this.scene = new THREE.Scene();
+                this.scene.background = new THREE.Color(0xf2d638);
+
+                this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+                this.renderer = new THREE.WebGLRenderer();
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+                document.body.appendChild(this.renderer.domElement);
+
+                this.queue = [];
+
+                // Create a transparent cuboid as container
+                const geometry = new THREE.BoxGeometry(this.CUBE_SIZE * this.SIZE, this.CUBE_SIZE + 0.2 * this.CUBE_SIZE, this.CUBE_SIZE + 0.2 * this.CUBE_SIZE);
+                const material = new THREE.MeshStandardMaterial({
+                    color: "white",
+                    transparent: true,
+                    opacity: 0.33,
+                    side: THREE.DoubleSide // Render both sides of the material
+                });
+                this.transparentCuboid = new THREE.Mesh(geometry, material);
+                this.transparentCuboid.position.set(((this.CUBE_SIZE * this.SIZE) - this.CUBE_SIZE) / 2, 0, 0);
+                this.scene.add(this.transparentCuboid);
+
+                // Add directional light
+                const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+                directionalLight.position.set(0, 1, 1);
+                this.scene.add(directionalLight);
+
+                // Adjust ambient light color and intensity for a light-themed scene
+                const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+                this.scene.add(ambientLight);
+
+                this.camera.position.z = 10;
+                this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+
+                this.animate = this.animate.bind(this);
+                this.onWindowResize = this.onWindowResize.bind(this);
+
+                window.addEventListener('resize', this.onWindowResize);
+
+                this.animate();
+            }
+
+            enqueueCube() {
+                if (this.queue.length < this.SIZE) {
+                    const brightness = (this._prev_brightness + getRandomArbitrary(0.15, 0.33)) % 1;
+                    const color = new THREE.Color(brightness, brightness, brightness, brightness);
+                    const material = new THREE.MeshStandardMaterial({ color: color, metalness: 0.7, roughness: 0.2 });
+                    const geometry = new THREE.BoxGeometry(this.CUBE_SIZE, this.CUBE_SIZE, this.CUBE_SIZE);
+                    const cube = new THREE.Mesh(geometry, material);
+
+                    const cubeGroup = new THREE.Group(); // Create a group for cube and label
+                    cubeGroup.add(cube); // Add cube to the group
+
+                    // Create text label
+                    const loader = new THREE.FontLoader();
+                    loader.load('https://cdn.jsdelivr.net/npm/three/examples/fonts/helvetiker_regular.typeface.json', (font) => {
+                        const textGeometry = new THREE.TextGeometry(`${this._prev_uid}`, { // Use unique ID as label
+                            font: font,
+                            size: 0.2,
+                            height: 0.05,
+                        });
+                        const textMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+                        const textMesh = new THREE.Mesh(textGeometry, textMaterial);
+                        textMesh.position.set(0, 1, 0); // Position above the cube
+                        cubeGroup.add(textMesh); // Add label to the group
+                    });
+
+                    const startAnimationX = 10 // window.innerWidth / 2; // Start animation from far right of the screen
+                    cubeGroup.position.set(startAnimationX, 0, 0); // Set initial position
+                    this.scene.add(cubeGroup); // Add group to the scene
+
+                    const targetX = this.CUBE_SIZE * this.queue.length; // Target position in the queue
+                    const animationDuration = 700; // Duration of the animation in milliseconds
+                    const startTime = performance.now(); // Get the start time of the animation
+
+                    const animatePosition = (currentTime) => {
+                        const elapsedTime = currentTime - startTime; // Calculate elapsed time
+                        const progress = elapsedTime / animationDuration; // Calculate progress (0 to 1)
+
+                        if (progress < 1) {
+                            const newX = THREE.MathUtils.lerp(startAnimationX, targetX, progress); // Calculate new position
+                            cubeGroup.position.x = newX; // Update cube position
+                            requestAnimationFrame(animatePosition); // Continue the animation
+                        } else {
+                            cubeGroup.position.x = targetX; // Ensure the final position is reached
+                            this.queue.push(cubeGroup); // Push group to the queue
+                            this._prev_brightness = brightness;
+                            this._prev_uid += 1;
+                        }
+                    };
+
+                    // Start the animation
+                    requestAnimationFrame(animatePosition);
+                } else {
+                    Toastify({
+                        text: "Queue is full. Cannot enqueue more cubes.",
+                        duration: 3000, // Toast display duration in milliseconds
+                        gravity: "top", // Toast position
+                        close: true // Show close button
+                    }).showToast();
+                }
+            }
+
+
+
+            dequeueCube() {
+                if (this.queue.length > 0) {
+                    const cube = this.queue.shift();
+                    const targetX = cube.position.x - 2; // Move the cube outward by 2 units
+                    const animationDuration = 500; // Duration of the animation in milliseconds
+                    const startTime = performance.now(); // Get the start time of the animation
+
+                    const animatePosition = (currentTime) => {
+                        const elapsedTime = currentTime - startTime; // Calculate elapsed time
+                        const progress = elapsedTime / animationDuration; // Calculate progress (0 to 1)
+
+                        if (progress < 1) {
+                            cube.position.x = THREE.MathUtils.lerp(cube.position.x, targetX, progress); // Move the cube gradually
+                            requestAnimationFrame(animatePosition); // Continue the animation
+                        } else {
+                            this.scene.remove(cube); // Remove the cube from the scene once animation is complete
+                            this.updateRemainingCubesPosition(); // Update positions of remaining cubes
+                        }
+                    };
+
+                    // Start the animation
+                    requestAnimationFrame(animatePosition);
+                } else {
+                    Toastify({
+                        text: "Queue is empty. Cannot dequeue cube.",
+                        duration: 3000, // Toast display duration in milliseconds
+                        gravity: "top", // Toast position
+                        close: true // Show close button
+                    }).showToast();
+                }
+            }
+
+            updateRemainingCubesPosition() {
+                for (let i = 0; i < this.queue.length; i++) {
+                    const cube = this.queue[i];
+                    const targetX = cube.position.x - this.CUBE_SIZE; // Move the cube left by one cube size
+                    const animationDuration = 500; // Duration of the animation in milliseconds
+                    const startTime = performance.now(); // Get the start time of the animation
+
+                    const animatePosition = (currentTime) => {
+                        const elapsedTime = currentTime - startTime; // Calculate elapsed time
+                        const progress = elapsedTime / animationDuration; // Calculate progress (0 to 1)
+
+                        if (progress < 1) {
+                            cube.position.x = THREE.MathUtils.lerp(cube.position.x, targetX, progress); // Move the cube gradually
+                            requestAnimationFrame(animatePosition); // Continue the animation
+                        } else {
+                            cube.position.x = targetX; // Ensure the final position is reached
+                        }
+                    };
+
+                    // Start the animation
+                    requestAnimationFrame(animatePosition);
+                }
+            }
+
+
+            animate() {
+                requestAnimationFrame(this.animate);
+                this.renderer.render(this.scene, this.camera);
+            }
+
+            onWindowResize() {
+                this.camera.aspect = window.innerWidth / window.innerHeight;
+                this.camera.updateProjectionMatrix();
+                this.renderer.setSize(window.innerWidth, window.innerHeight);
+            }
+        }
+
+        const queueAnimation = new QueueAnimation();
+
+        document.getElementById("enqueueBtn").addEventListener("click", throttleFunction(() => {
+            queueAnimation.enqueueCube();
+        }, 800));
+
+        document.getElementById("dequeueBtn").addEventListener("click", throttleFunction(() => {
+            queueAnimation.dequeueCube();
+        }, 800));
+    </script>
+</body>
+
+</html>
