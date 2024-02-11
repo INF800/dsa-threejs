@@ -1,2 +1,4 @@
-# dsa-threejs
-Data structures and algorithms with threejs visualisation
+# ✨ DSA Meets ThreeJS ✨
+
+Data structures and algorithms powered by ThreeJS visualization.
+
